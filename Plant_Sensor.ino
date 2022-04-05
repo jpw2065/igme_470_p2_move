@@ -1,121 +1,180 @@
-#include <CapacitiveSensor.h>
+/*
+  Plant Sensing
 
-// Sensor input pins.
-int moisturePin = A2;
+  Code that enables three different types of sensors for a plant. A capacitive sensor, a moisture sensor, and a photo sensor. In addition this script also supports
+  different outputs to both P5 and a physical LED.
+
+  modified date 4/3/2022
+  by Jack Watson
+ */
+
+#include <CapacitiveSensor.h>
+#include <arduino-timer.h>
+
+// Output pins
+int colorPin = 9;
+int brightnessPin = A0;
+
+// Sensor input pins
+int moisturePinIn = A2;
+int moisturePinOut = A3;
 int photoPin = A1;
 int capacitivePinOut = 10;
-int capactiviePinIn = 8;
+int capacitivePinIn = 8;
 
-// Sensor ouptut pins
-int transistorPin = 8;
-
-CapacitiveSensor cs_10_8 = CapacitiveSensor(capacitivePinOut, capacitivePinInyy);
+// Create the touch sensor object, and the timer object
+CapacitiveSensor touchSensor = CapacitiveSensor(capacitivePinOut, capacitivePinIn);
+auto timer = timer_create_default(); // create a timer with default settings
 
 // Memory for the global plants state. [0] is watered, [1] is light, [2] is touched
-bool[] currentState = [false, false, false];
+bool currentState[3] = {false, false, false};
+
+// Sensor configuration variables.
+int calibratedTouchValue = 14;
+int sensorReadDelay = 20;
 
 /**
  * Initialize the arduino
  */
 void setup() {
   Serial.begin(9600);
-  while(!Serial); // Wait for serial to start.
-  setState();
-  delay(2000);
+  pinMode(colorPin, OUTPUT);
+  timer.every(120000, statusIndicator); // Every 2 minutes.
+  determineState(currentState);
+  
+  // On setup we want to calibrate the touch sensor so that we can confirm that we are going to be going from a value that can resist the changes from water.
+  calibratedTouchValue = getTouchSense(100);
 }
 
+/**
+ * Run the main program loop. Here our goal is to determine what the current state of the applicaiton is.
+ */
 void loop() {
   
-  bool[] oldState = copyCurrentState();
-  determineState();
+  timer.tick();
 
-  // Here we both update and render basedd on the current game state. Not the best way to do it but it works for us now and prevents us from having to duplicated if statement logic.
+  // Determine the state changes based on sensor values.
+  bool* oldState = copyCurrentState();
+  determineState(currentState);
+  
+  // Here we both update and render based on the current game state. Not the best way to do it but it works for us now and prevents us from having to duplicated if statement logic.
   // I could clean this up if I could pass functions to next functions - or use object oriented.
   // Here we have a state machine that tracks the state of three seperate processies all in one. 
-  if(currentState[0] != oldState[0]){
-    changeWaterState();
-  }
 
-  // If we have chnaged the state of the light sensor trigger that method here.
-  if(currentState[1] != oldState[1]) {
-    changeLightState()
-  }
-
-  // If we have changed the state of the touch sensor trigger that here.
-  if(currentState[2] != oldState[2]) {
+  // If the touch state changes
+  if(currentState[2] != oldState[2]){
     changeTouchState();
+  // If the water state changes
+  } else if(currentState[0] != oldState[0]) {
+    changeWaterState();
+  // If the light state changes
+  } else if (currentState[1] != oldState[1]){
+    changeLightState();
   }
-  
 }
 
-// === Output ===
-
+// === Output on P5 ===
+/**
+ * Change the state of the output to be that of either thirsty (2) or back to normal (4)
+ */
 void changeWaterState() {
   if(currentState[0]) {
-    // Play watered sound
-    // Display watered plant.
+    Serial.println(2);
   } else {
-     // Play un-watered sound.
-     // Display un-watered plant.
+    Serial.println(4);
   }
 }
 
+/**
+ * Change the state of the output to be that of either dark (3) or back to normal (4)
+ */
 void changeLightState() {
   if(currentState[1]) {
-    // Play light on sound
-    // Display bright  plant.
+    Serial.println(4);
   } else {
-     // Play light off sound.
-     // Display dark plant.
+    Serial.println(3);
   }
 }
 
+/**
+ * Change the state of the touch output to be either touched (1) or back to normal (4)
+ */
 void changeTouchState() {
   if(currentState[2]) {
-    // Play a touching sound,
-    // Display to angry plant.
+    Serial.println(1);
   } else {
-    //Display normal plant.
+    Serial.println(4);
+    calibratedTouchValue = getTouchSense(50); // Recalculate the touch metric when this finishes. We have to do this becuase we were getting werid values on the capacitive
+    // sensor where it would change it's default voltage after an initial touch.
   }
+}
+
+// === Output On LED ===
+
+/**
+ * Status indicator for both brighness, and also moisture content.
+ */
+bool statusIndicator(void *) {
+  int waterValue = getDryness();
+  int lightValue = getLight();
+
+  digitalWrite(colorPin, HIGH);  
+  analogWrite(brightnessPin, map(lightValue, 0, 50, 45, 80));
+  delay(5000);
+  digitalWrite(colorPin, LOW);
+  analogWrite(brightnessPin, map(waterValue, 0, 255, 45, 80));
+  delay(5000);
+
+  analogWrite(brightnessPin, 0);
+
+  return true;
 }
 
 // === Input ===
-
-// Help method to copy the internal state so we can save it to memory somewhere.
-bool[] copyCurrentState() {
-  return [currentState[0], currentState[1], currentState[2]];
+/**
+ * Helpe method to copy the internal state so we can save it to memory somwhere.
+ */
+bool* copyCurrentState() {
+  return new bool[3] {
+    currentState[0], 
+    currentState[1], 
+    currentState[2]
+  };
 }
 
 /*
  * Determine the overall state of the plant. Load this into our custom datastructure. 
  */
-boolean[] determineState() {
-  return [
-    determineStateChange(currentState[0], getDryness(), 200, 900), 
-    determineStateChange(currentState[1], getLight(), 20, 400), 
-    determineStateChange(currentState[2], getTouchSense(), 1500, 1500)
-  ];
+bool* determineState(bool* currentState) {
+   currentState[0] = determineStateChange(currentState[0], getDryness(), 100, 200);
+   currentState[1] = determineStateChange(currentState[1], getLight(), 30, 60);
+   currentState[2] = determineStateChange(currentState[2], getTouchSense(20), calibratedTouchValue + 5, calibratedTouchValue + 10);
 }
 
 
 /*
  * Help function that allows us to determine the internal state of the current sensor.
  */
-bool determineStateChange(originalState, newValue, minValue, maxValue) {
+bool determineStateChange(bool originalState, int newValue, int minValue, int maxValue) {
   if(newValue >= maxValue && !originalState) {
     return true;
   } else if(newValue <= minValue && originalState) {
     return false;
   }
-  return originalState.
+  return originalState;
 }
 
 
 /*
- * Get the light data from the potted plant.
+ * Get the light data from the potted plant. Take the average for more accurate results.
  */
 int getLight() {
-  return analogRead(photoPin);
+  int tempValue = 0;
+  for (int i = 0; i < 5; i++) {
+    tempValue += analogRead(photoPin);
+    delay(sensorReadDelay);
+  }
+  return tempValue / 5;
 }
 
 /**
@@ -123,66 +182,25 @@ int getLight() {
  */
 int getDryness() {
   int tempValue = 0; // variable to temporarly store moisture value 
-  for (int a = 0; a < 10; a++) { 
-    tempValue += analogRead(moisturePin); 
-    delay(100); 
-  } 
-  return tempValue / 10; 
+ for (int i = 0; i < 5; i++) { 
+    analogWrite(moisturePinOut, 255);
+    delay(sensorReadDelay * 0.25);
+    tempValue += map(analogRead(moisturePinIn), 900, 1024, 0, 255);
+    delay(sensorReadDelay * 0.75);
+    analogWrite(moisturePinOut, 0);    
+ } 
+ return tempValue / 5; 
 }
 
 
 /**
- * Get the plants sense of touch.
+ * Get the plants sense of touch. Take the average for more accurate results.
  */
-long getTouchSense() {
-    return cs_10_8.capacitiveSensor(30);
-//  int scaled = map(total1, 0, 90000, 0, 255); Keep maping just in case we need to output to the transistor pin.
+int getTouchSense(int average) {
+  int tempValue = 0;
+  for (int i = 0; i < average; i++) {
+    tempValue += map(touchSensor.capacitiveSensor(50), 0, 90000, 0, 255);
+    delay(sensorReadDelay);
+  }
+  return tempValue / average;
 }
-
-// Sensor code.
-//int moisturePin = A2; 
-//// Set this threeshold accordingly to the resistance you used 
-//// The easiest way to calibrate this value is to test the sensor in both dry and wet soil 
-//int threeshold = 800; 
-//void setup() { 
-//   Serial.begin(9600); 
-//   while (!Serial); 
-//   delay(2000); 
-//} 
-//void loop() { 
-//   Serial.println(get_average_moisture()); 
-//   delay(50); 
-//} 
-//int get_average_moisture() { // make an average of 10 values to be more accurate 
-//   int tempValue = 0; // variable to temporarly store moisture value 
-//   for (int a = 0; a < 10; a++) { 
-//     tempValue += analogRead(moisturePin); 
-//     delay(100); 
-//   } 
-//   return tempValue / 10; 
-//} 
-//
-//
-//int ledPin = 3;
-//// 1M (fast/touch only) - 40M (within range) resistor (last stripe green blue)
-//// between pins 10 & 8 (8 is sensor pin), add a wire or foil or fruit ;)
-//CapacitiveSensor cs_10_8 = CapacitiveSensor(10,8);
-//
-//// Setup serial, and pins.
-//void setup() {
-//  Serial.begin(9600);
-//  pinMode(ledPin, OUTPUT);
-//}
-//
-//// Loop over the sensor reading
-//void loop() {
-//  long start = millis();
-//  long total1 = cs_10_8.capacitiveSensor(30);
-//  Serial.print(millis() - start); // check on performance in milliseconds
-//  Serial.print("\t"); // tab for debug window spacing
-//  Serial.println(total1); // print sensor output 1
-//  delay(10); // arbitrary delay to limit data to serial port
-//  int scaled = map(total1, 0, 90000, 0, 255);
-//  analogWrite(ledPin, scaled);
-//}
-////https://create.arduino.cc/editor/wmharris/845a2b21-cb1d-4c4a-afa7-74d812d017c5/preview8

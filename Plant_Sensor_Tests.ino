@@ -1,3 +1,12 @@
+/*
+  Test Script for Plant Sensor
+
+  This code enables a series of tests that we run to confirm that sensors are working as intended. Super useful!
+
+  modified date 4/3/2022
+  by Jack Watson
+ */
+
 #include <CapacitiveSensor.h>
 
 // Output pins.
@@ -5,12 +14,15 @@ int colorPin = 9;
 int brightnessPin = A0;
 
 // Sensor input pins.
-int moisturePin = A2;
+int moisturePinIn = A2;
+int moisturePinOut = A3;
 int photoPin = A1;
 int capacitivePinOut = 10;
 int capacitivePinIn = 8;
 
 CapacitiveSensor cs_10_8 = CapacitiveSensor(capacitivePinOut, capacitivePinIn);
+
+int sensorReadDelay = 20;
 
 void setup() {
   Serial.begin(9600);
@@ -19,8 +31,8 @@ void setup() {
 
 void loop() {
 
-  // --- Blue LED Test ---
-  Serial.println("--- Blue LED Test ---");
+  // --- Green LED Test ---
+  Serial.println("--- Green LED Test ---");
   digitalWrite(colorPin, HIGH);
   
   for(int i = 0; i < 255; i++) {
@@ -30,8 +42,8 @@ void loop() {
 
   delay(2000);
 
-  // --- Green LED Test . ---
-  Serial.println("--- Green LED Test ---");
+  // --- Blue LED Test . ---
+  Serial.println("--- Blue LED Test ---");
   digitalWrite(colorPin, LOW);
 
   for(int i = 0; i < 255; i++) {
@@ -45,7 +57,7 @@ void loop() {
   Serial.println("--- Plant Sensor Test ---");
   
   // Run the following test for 10 seconds.
-  for(int i = 0; i < 1000; i++) {
+  for(int i = 0; i < 100; i++) {
      Serial.println(getTouchSensor());
      delay(10);
   }
@@ -54,15 +66,16 @@ void loop() {
 
   // --- Moisture Sensor Test ---
   Serial.println("--- Moisture Sensor Test ---");
-  for(int i = 0; i < 10; i++) {
+  for(int i = 0; i < 100; i++) {
      Serial.println(getMoistureSensor());
   }
 
   delay(2000);
   // --- Light Sensor Test ---
   Serial.println("--- Light Sensor Test ---");
-  for(int i = 0; i < 1000; i++) {
+  for(int i = 0; i < 100; i++) {
     Serial.println(getLightSensor());
+    delay(10);
   }
   
   delay(2000);
@@ -72,24 +85,38 @@ void loop() {
  * Get the capacitive sensor value.
  */
 int getTouchSensor() {
-  return cs_10_8.capacitiveSensor(30);
+
+  int tempValue = 0;
+  for (int i = 0; i < 5; i++) {
+    tempValue += map(cs_10_8.capacitiveSensor(30), 0, 90000, 0, 255);
+    delay(sensorReadDelay);
+  }
+  return tempValue / 5;
 }
 
 /*
  * Get the light value from the sensor.
  */
 int getLightSensor() {
-  return analogRead(photoPin);
+  int tempValue = 0;
+  for (int i = 0; i < 5; i++) {
+    tempValue += analogRead(photoPin);
+    delay(sensorReadDelay);
+  }
+  return tempValue / 5;
 }
 
 /*
  * Get the moisture value.
  */
 int getMoistureSensor() {
-   int tempValue = 0; // variable to temporarly store moisture value 
-   for (int a = 0; a < 10; a++) { 
-     tempValue += analogRead(moisturePin); 
-     delay(100); 
-   } 
-   return tempValue / 10; 
+  int tempValue = 0; // variable to temporarly store moisture value 
+  for (int i = 0; i < 5; i++) { 
+      analogWrite(moisturePinOut, 255);
+      delay(sensorReadDelay * 0.25);
+      tempValue += map(analogRead(moisturePinIn), 900, 1024, 0, 255);
+      delay(sensorReadDelay * 0.75);
+      analogWrite(moisturePinOut, 0);    
+  } 
+  return tempValue / 5; 
 } 
